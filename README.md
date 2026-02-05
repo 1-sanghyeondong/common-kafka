@@ -86,3 +86,75 @@ Redis, DB 등 외부 저장소를 사용하지 않고 Java `ConcurrentHashMap`�
 
 #### Header Preservation
 메시지를 재전송할 때 Trace ID, Auth Token 등 원본 헤더를 모두 복사하며 추가로 `x-exception-msg` 등 디버깅 정보를 헤더에 포함시킵니다.
+
+flowchart TD
+%% 스타일 정의
+classDef kafka fill:#ECECFF,stroke:#333,stroke-width:2px;
+classDef app fill:#FFF4E6,stroke:#D9730D,stroke-width:2px,stroke-dasharray: 5 5;
+classDef process fill:#EDF7ED,stroke:#333,stroke-width:1px;
+classDef decision fill:#FFF,stroke:#333,stroke-width:1px;
+classDef store fill:#FFE6E6,stroke:#D90D0D,stroke-width:2px;
+classDef success stroke:#0D730D,stroke-width:2px;
+classDef fail stroke:#D90D0D,stroke-width:2px;
+
+    %% 외부 시스템
+    MainTopic(Main Kafka Topic):::kafka
+    RetryTopic(Retry Topic\n-retry-1m):::kafka
+
+    %% 내부 로직
+    subgraph Consumer Service Application
+        direction TB
+        Listener([@CommonKafkaListener\nMessage Received]):::process
+        Extract[Extract Key & Topic]:::process
+        
+        CheckBlock{Is Key Blocked?\nLocal Cache Check}:::decision
+        LocalCache[(In-Memory\nLocal Cache)]:::store
+        
+        Execute[Execute Business Logic\n@Service Method]:::process
+        LogicSuccess{Success?}:::decision
+        
+        SetBlock[Set Block & TTL]:::process
+        Forward["Forward to Retry Topic\n(with Header+Exception)"]:::process
+        ForwardSuccess{Forwarding\nSuccess?}:::decision
+        
+        ACK((ACK\nOffset Commit)):::success
+        NACK((NACK\nRethrow)):::fail
+    end
+
+    %% 흐름 연결
+    MainTopic --> Listener
+    Listener --> Extract
+    Extract --> CheckBlock
+    
+    %% 1. 블로킹 체크 경로
+    CheckBlock -- "YES (Blocked)" --> Forward
+    LocalCache -.-> CheckBlock
+
+    %% 2. 정상 실행 경로
+    CheckBlock -- "NO (Normal)" --> Execute
+    Execute --> LogicSuccess
+    LogicSuccess -- YES --> ACK
+    
+    %% 3. 로직 실패 및 격리 경로
+    LogicSuccess -- "NO (Exception)" --> SetBlock
+    SetBlock --> LocalCache
+    SetBlock --> Forward
+    Forward --> ForwardSuccess
+    
+    %% 4. 결과 처리 및 안전 장치
+    ForwardSuccess -- "YES (Isolated)" --> ACK
+    ForwardSuccess -- "NO (Producer Fail)" --> NACK
+
+    %% 외부 전송
+    Forward -.-> KafkaTemplate(KafkaTemplate):::process -.-> RetryTopic
+
+    %% 스타일 적용
+    linkStyle 4,5,6,7,13,14 stroke:#D90D0D,stroke-width:2px,color:red;
+    linkStyle 8,9,11,12 stroke:#0D730D,stroke-width:2px,color:green;
+
+이 다이어그램은 하나의 메시지가 들어왔을 때의 처리 과정을 나타냅니다.
+1. 수신 및 확인: 메시지가 들어오면 가장 먼저 로컬 캐시(In-Memory)를 확인하여 해당 Key가 현재 차단(Blocking) 상태인지 확인합니다.
+2. 순서 보장 (Blocking): 이미 선행 메시지가 실패하여 차단된 상태라면 비즈니스 로직을 실행하지 않고 즉시 재시도 토픽으로 우회(Forwarding) 시킵니다.
+3. 로직 실행 및 실패 감지: 정상 상태라면 비즈니스 로직을 수행합니다. 수행 중 예외(Exception)가 발생하면 이를 감지합니다.
+4. 장애 격리 (Resiliency): 예외 발생 시 로컬 캐시에 해당 Key를 차단 상태로 설정하고, 메시지를 재시도 토픽으로 발송합니다.
+5. 안전 장치 (Fail-Safe): 만약 재시도 토픽으로의 발송마저 실패할 경우(가장 오른쪽 하단 분기), 원본 예외를 다시 던져(Rethrow) Kafka가 메시지 처리를 실패로 인식하게 하여 데이터 유실을 방지합니다.
