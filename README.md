@@ -87,6 +87,7 @@ Redis, DB 등 외부 저장소를 사용하지 않고 Java `ConcurrentHashMap`�
 #### Header Preservation
 메시지를 재전송할 때 Trace ID, Auth Token 등 원본 헤더를 모두 복사하며 추가로 `x-exception-msg` 등 디버깅 정보를 헤더에 포함시킵니다.
 
+```mermaid
 flowchart TD
 %% 스타일 정의
 classDef kafka fill:#ECECFF,stroke:#333,stroke-width:2px;
@@ -151,6 +152,8 @@ classDef fail stroke:#D90D0D,stroke-width:2px;
     %% 스타일 적용
     linkStyle 4,5,6,7,13,14 stroke:#D90D0D,stroke-width:2px,color:red;
     linkStyle 8,9,11,12 stroke:#0D730D,stroke-width:2px,color:green;
+```
+
 
 이 다이어그램은 하나의 메시지가 들어왔을 때의 처리 과정을 나타냅니다.
 1. 수신 및 확인: 메시지가 들어오면 가장 먼저 로컬 캐시(In-Memory)를 확인하여 해당 Key가 현재 차단(Blocking) 상태인지 확인합니다.
