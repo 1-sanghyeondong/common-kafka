@@ -33,11 +33,7 @@ spring:
 
 ```
 
----
-
-#### 🛠 상세 기능
-
-#### 1. @CommonKafkaListener
+#### 3. @CommonKafkaListener 작성
 기존 `@KafkaListener` 대신 사용하여 장애 격리 기능을 적용합니다.
 
 ```java
@@ -52,7 +48,11 @@ public class OrderEventListener {
 }
 ```
 
-#### 2. 자동 장애 격리 (Auto Failover)
+---
+
+#### 🛠 상세 기능
+
+#### 1. 자동 장애 격리 (Auto Failover)
 메서드 실행 중 예외가 발생했을 때의 동작입니다.  
 동작 효과: 장애가 발생한 메시지 때문에 파티션 전체가 막히는(Head-of-Line Blocking) 현상을 방지
 
@@ -62,7 +62,7 @@ public class OrderEventListener {
 3. 현재 Offset Commit (성공 처리)
 ```
 
-#### 3. 순서 보장 매커니즘 (Ordering)
+#### 2. 순서 보장 매커니즘 (Ordering)
 특정 Key(예: User_A)의 메시지가 실패했을 때 해당 Key의 후속 메시지 처리를 제어
 
 #### 동작 원리 (Local Blocking)
@@ -73,7 +73,7 @@ public class OrderEventListener {
 3. 설정된 `blocking-ttl-seconds` (기본 70초) 동안 이 상태가 유지
 ```
 
-#### 4. Resiliency Architecture (안전 장치)
+#### 3. Resiliency Architecture (안전 장치)
 Kafka 장애나 네트워크 이슈 등 극한 상황에서도 서비스 가용성을 유지하기 위한 설계
 
 #### Zero Dependency
