@@ -1,0 +1,66 @@
+plugins {
+    id 'maven-publish'
+    id 'java-library'
+}
+
+group = 'com.common'
+version = '1.0.0'
+
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    api 'org.springframework.kafka:spring-kafka'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation platform('org.springframework.boot:spring-boot-dependencies:3.2.2')
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+jar {
+    enabled = true
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            artifactId = 'common-kafka'
+        }
+    }
+    // Repositories 설정은 유지
+    repositories {
+        maven {
+            name 'nexus'
+            def releasesRepoUrl = 'http://nexus.kakao.io/repository/releases/'
+            def snapshotsRepoUrl = 'http://nexus.kakao.io/repository/snapshots/'
+            allowInsecureProtocol = true
+            url = version.endsWith('SNAPSHOT') ? uri(snapshotsRepoUrl) : uri(releasesRepoUrl)
+            credentials {
+                username = project.findProperty("repoUser") ?: System.getenv("REPO_USER")
+                password = project.findProperty("repoPass") ?: System.getenv("REPO_PASS")
+            }
+        }
+    }
+}
+
+// Source Jar 생성 Task 추가
+task sourceJar(type: Jar) {
+    from sourceSets.main.allJava
+    archiveClassifier = "sources"
+}
