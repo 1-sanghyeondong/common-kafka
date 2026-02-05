@@ -105,21 +105,21 @@ classDef fail stroke:#D90D0D,stroke-width:2px;
     %% 내부 로직
     subgraph App ["Consumer Service Application"]
         direction TB
-        Listener(["@CommonKafkaListener\nMessage Received"]):::process
+        Listener(["@CommonKafkaListener Message Received"]):::process
         Extract[Extract Key & Topic]:::process
         
-        CheckBlock{Is Key Blocked?\nLocal Cache Check}:::decision
-        LocalCache[(In-Memory\nLocal Cache)]:::store
+        CheckBlock{Is Key Blocked? Local Cache Check}:::decision
+        LocalCache[(In-Memory Local Cache)]:::store
         
-        Execute["Execute Business Logic\n@Service Method"]:::process
+        Execute["Execute Business Logic @Service Method"]:::process
         LogicSuccess{Success?}:::decision
         
         SetBlock[Set Block & TTL]:::process
-        Forward["Forward to Retry Topic\n(with Header+Exception)"]:::process
-        ForwardSuccess{Forwarding\nSuccess?}:::decision
+        Forward["Forward to Retry Topic (with Header+Exception)"]:::process
+        ForwardSuccess{Forwarding Success?}:::decision
         
-        ACK((ACK\nOffset Commit)):::success
-        NACK((NACK\nRethrow)):::fail
+        ACK((ACK Offset Commit)):::success
+        NACK((NACK Rethrow)):::fail
     end
 
     %% 흐름 연결
