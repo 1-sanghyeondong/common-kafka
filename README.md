@@ -103,15 +103,15 @@ classDef fail stroke:#D90D0D,stroke-width:2px;
     RetryTopic(Retry Topic\n-retry-1m):::kafka
 
     %% 내부 로직
-    subgraph Consumer Service Application
+    subgraph App ["Consumer Service Application"]
         direction TB
-        Listener([@CommonKafkaListener\nMessage Received]):::process
+        Listener(["@CommonKafkaListener\nMessage Received"]):::process
         Extract[Extract Key & Topic]:::process
         
         CheckBlock{Is Key Blocked?\nLocal Cache Check}:::decision
         LocalCache[(In-Memory\nLocal Cache)]:::store
         
-        Execute[Execute Business Logic\n@Service Method]:::process
+        Execute["Execute Business Logic\n@Service Method"]:::process
         LogicSuccess{Success?}:::decision
         
         SetBlock[Set Block & TTL]:::process
