@@ -44,8 +44,8 @@ publishing {
     repositories {
         maven {
             name 'nexus'
-            def releasesRepoUrl = 'http://nexus.kakao.io/repository/releases/'
-            def snapshotsRepoUrl = 'http://nexus.kakao.io/repository/snapshots/'
+            def releasesRepoUrl = 'http://nexus.io/repository/releases/'
+            def snapshotsRepoUrl = 'http://nexus.io/repository/snapshots/'
             allowInsecureProtocol = true
             url = version.endsWith('SNAPSHOT') ? uri(snapshotsRepoUrl) : uri(releasesRepoUrl)
             credentials {

@@ -1,163 +1,153 @@
-#### Spring Boot 환경에서 Kafka 컨슈머의 장애 격리(Resiliency) 및 순서 보장(Ordering)을 쉽고 안전하게 구현할 수 있도록 지원하는 라이브러리
-- **장애 격리 및 복구 (Resiliency)**: 비즈니스 로직 실패 시 즉시 재시도 토픽으로 메시지를 대피(Forwarding)시켜 메인 컨슈머의 지연(Lag)을 방지하고 시스템 안정성을 확보
-- **데이터 순서 보장 (Ordering)**: 분산 환경에서 특정 Key 처리가 실패했을 때, 로컬 캐시 기반의 Blocking 을 통해 후속 메시지의 순서가 뒤바뀌는 것을 방지
-- **개발 생산성 향상**: 복잡한 `try-catch`, 재시도 발송, 순서 제어 로직을 `@CommonKafkaListener` 어노테이션 하나로 추상화하여 비즈니스 로직에 집중할 수 있도록 지원
+#### Kafka 메시지 소비, 장애 격리, 순서 보장, 실패 메시지를 중앙에서 관리하고 재처리하는 Kafka DeadLetter Queue 라이브러리
+
+- **자동 설정**: 복잡한 설정 없이 의존성 추가만으로 즉시 사용 가능
+- **장애 격리**: 메시지 처리 실패 시 즉시 Retry 토픽으로 격리하여 파티션 Lag 방지 및 서비스 안정성 확보
+- **순서 보장**: 실패한 Key에 대한 Local Blocking을 통해 후속 메시지 처리 순서가 뒤바뀌는 것을 방지
+- **중앙 집중**: 각 서비스가 개별적으로 재시도 로직을 구현할 필요 없이 실패된 처리는 모두 `common-retry-topic` 토픽으로 전달하여 재처리
+- **지연 처리**: 메시지 헤더 분석을 통해 설정된 시간을 정확히 준수하여 재발행함으로써 시스템 부하를 분산하고 복구 시간을 확보
+- **실패 관리**: 최대 재시도 횟수 초과 시 자동으로 DLQ(Dead Letter Queue)로 격리하여 데이터 유실을 방지하고 실패 원인 추적 지원
 
 ---
 
-### 🚀 퀵 스타트
+#### 🚀 퀵 스타트
 
-#### 1. Gradle 의존성 추가
-프로젝트의 `build.gradle` 파일에 아래 의존성을 추가
+##### 1. Gradle 의존성 추가
+프로젝트의 `build.gradle` 파일에 아래 의존성을 추가하세요.
 
 ```gradle
 dependencies {
     implementation 'com.common:common-kafka:1.0.0'
-    implementation 'org.springframework.kafka:spring-kafka'
 }
 ```
 
-#### 2. application.yml 설정
+##### 2. 라이브러리 활성화
+Application 클래스 또는 설정 클래스에 `@EnableCommonKafkaListener`를 붙입니다.
+
+```java
+@EnableCommonKafkaListener
+@SpringBootApplication
+public class ApiApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(CreditApiApplication.class, args);
+    }
+}
+```
+
+##### 3. application.yml 설정
+
+`application.yml` 파일에 설정을 추가합니다.
 
 ```yaml
 spring:
   kafka:
-    bootstrap-servers: {kafka host}:9092
-
-    consumer:
-      group-id: {service-group-id}
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        spring.json.trusted.packages: "*" # DTO 변환 허용 패키지
-
-```
-
-#### 3. @CommonKafkaListener 작성
-기존 `@KafkaListener` 대신 사용하여 장애 격리 기능을 적용합니다.
-
-```java
-@Component
-public class OrderEventListener {
-    // 기존 @KafkaListener 와 사용법 동일
-    @CommonKafkaListener(topics = "order-events", groupId = "order-group")
-    public void onMessage(ConsumerRecord<String, OrderDto> record) {
-        // ... 비즈니스 로직
-        // 예외(Exception) 발생 시 라이브러리가 자동으로 감지하여 처리
-    }
-}
+    bootstrap-servers: 카프카 브로커 주소 (입력하지 않으면 앱 구동 실패)
 ```
 
 ---
 
 #### 🛠 상세 기능
 
-#### 1. 자동 장애 격리 (Auto Failover)
-메서드 실행 중 예외가 발생했을 때의 동작입니다.  
-동작 효과: 장애가 발생한 메시지 때문에 파티션 전체가 막히는(Head-of-Line Blocking) 현상을 방지
+##### 1. @CommonKafkaListener
+기존 `@KafkaListener`를 대체하는 어노테이션이며 DTO 객체로 메시지를 바로 수신
 
-```
-1. Exception 감지
-2. Retry Topic 으로 메시지 원본(Header 포함) 복사 및 전송
-3. 현재 Offset Commit (성공 처리)
-```
+```java
+@CommonKafkaListener(topics = "order-events", groupId = "order-service", concurrency = "3")
+public void onMessage(ConsumerRecord<String, OrderDto> record) {
+    // DTO 객체로 바로 수신 (JsonDeserializer 자동 적용)
+    log.info("Order ID: {}", record.value().getOrderId());
 
-#### 2. 순서 보장 매커니즘 (Ordering)
-특정 Key(예: User_A)의 메시지가 실패했을 때 해당 Key의 후속 메시지 처리를 제어
-
-#### 동작 원리 (Local Blocking)
-동작 결과: 실패한 메시지와 후속 메시지들이 모두 재시도 대기열에 순서대로 쌓이게 되어 데이터 정합성을 보장
-```
-1. User_A의 메시지가 실패하면 해당 서버의 로컬 메모리에 User_A를 잠시 차단(Block) 상태로 기록
-2. 이후 들어오는 User_A의 후속 메시지들은 비즈니스 로직을 타지 않고 즉시 Retry Topic 으로 우회
-3. 설정된 `blocking-ttl-seconds` (기본 70초) 동안 이 상태가 유지
+    // 비즈니스 로직 수행
+    // 예외 발생시 retry & dead letter 처리
+    processOrder(record.value());
+}
 ```
 
-#### 3. Resiliency Architecture (안전 장치)
-Kafka 장애나 네트워크 이슈 등 극한 상황에서도 서비스 가용성을 유지하기 위한 설계
+| 옵션 | 설명 | 기본값                           |
+|---|---|-------------------------------|
+| `topics` | 구독할 Kafka 토픽 목록 | 필수                            |
+| `groupId` | 컨슈머 그룹 ID. 설정하지 않으면 yml 기본값 사용 | ""                            |
+| `concurrency` | 병렬 소비 스레드 개수 | ""                            |
+| `containerFactory` | 사용할 컨테이너 팩토리 빈 이름 | `commonContainerFactory` (고정) |
+| `enableResiliency` | 장애 격리 활성화 여부. `false` 설정 시 retry/dead letter 처리 없이 즉시 실패 | `true`                        |
 
-#### Zero Dependency
-Redis, DB 등 외부 저장소를 사용하지 않고 Java `ConcurrentHashMap`을 사용하여 구현했습니다. 외부 인프라 장애가 이 라이브러리의 동작에 영향을 주지 않습니다.
+##### 2. Resiliency (장애 격리) 비활성화
+특정 리스너에서 retry 또는 dead letter 처리가 필요하지 않은 경우, `enableResiliency = false`로 설정할 수 있습니다.
 
-#### Fail-Safe (전송 실패 시)
-만약 Retry Topic으로의 메시지 전송(Producer send)마저 실패한다면?
-*   이 경우 원본 예외(Original Exception)를 다시 던져(Rethrow) Kafka가 Offset 을 Commit 하지 못하게 막습니다
-*   이를 통해 데이터 유실(Data Loss)을 방지하고 Kafka의 기본 재시도 메커니즘을 따르게 합니다
+**리스너별 설정 예시**:
+```java
+@CommonKafkaListener(
+    topics = "audit-events", 
+    groupId = "audit-service",
+    enableResiliency = false  // 이 리스너는 fail-fast (즉시 실패)
+)
+public void onAuditMessage(ConsumerRecord<String, AuditDto> record) {
+    // 예외 발생 시 retry 없이 즉시 실패 처리
+    processAudit(record.value());
+}
+```
 
-#### Header Preservation
-메시지를 재전송할 때 Trace ID, Auth Token 등 원본 헤더를 모두 복사하며 추가로 `x-exception-msg` 등 디버깅 정보를 헤더에 포함시킵니다.
+##### 3. 장애 격리 메커니즘
+비즈니스 로직 수행 중 예외(Exception)가 발생하면 다음과 같이 동작합니다.
+
+*   **Fail-Fast**: 예외를 즉시 감지하고 로그를 출력합니다.
+*   **Forwarding**: 해당 메시지를 공통 Retry 토픽(`common-retry-topic`)으로 전송합니다.
+*   **Header Storage**: 원본 토픽 정보는 `x-original-topic` 헤더에 저장되어 Retry Worker가 올바른 토픽으로 재발행할 수 있습니다.
+*   **ACK**: 원본 토픽에 대해 커밋(ACK) 처리하여, 파티션이 막히는(Lag) 현상을 방지합니다.
+*   **Header Injection**: 원본 토픽명, 예외 메시지, 발생 시간 등을 Kafka Header에 심어서 보냅니다.
+
+> **참고**: 모든 실패 메시지는 단일 공통 Retry 토픽(`common-retry-topic`)으로 전송되며 별도의 Retry Worker가 헤더의 `x-original-topic` 정보를 읽어 일정 시간 후 원본 토픽으로 재발행합니다.
+
+##### 4. 순서 보장
+특정 Key(예: `User:123`)의 메시지가 실패했을 때, 해당 Key의 후속 메시지들이 먼저 처리되어 데이터 정합성이 깨지는 것을 방지합니다.
+
+*   **Local Blocking**: 실패한 Key는 서버 메모리에 잠시 기록됩니다.
+*   **Bypass**: 차단된 Key로 들어오는 후속 메시지들은 로직을 타지 않고 즉시 Retry 토픽으로 우회시킵니다.
+*   **TTL**: 기본적으로 50초 동안 차단되며, 이후 자동으로 해제됩니다.
+
+#### 5. 격리 및 복구 절차
+메시지의 상태에 따라 원본 토픽으로 재발행하거나 DLQ로 격리합니다.
 
 ```mermaid
-flowchart TD
-%% 스타일 정의
-classDef kafka fill:#ECECFF,stroke:#333,stroke-width:2px;
-classDef app fill:#FFF4E6,stroke:#D9730D,stroke-width:2px,stroke-dasharray: 5 5;
-classDef process fill:#EDF7ED,stroke:#333,stroke-width:1px;
-classDef decision fill:#FFF,stroke:#333,stroke-width:1px;
-classDef store fill:#FFE6E6,stroke:#D90D0D,stroke-width:2px;
-classDef success stroke:#0D730D,stroke-width:2px;
-classDef fail stroke:#D90D0D,stroke-width:2px;
+sequenceDiagram
+    participant S as 서비스 (Service)
+    participant R as Retry Topic
+    participant W as Retry Worker
+    participant Redis as Redis (ZSet)
+    participant DB as DLQ (DB)
 
-    %% 외부 시스템
-    MainTopic(Main Kafka Topic):::kafka
-    RetryTopic(Retry Topic\n-retry-1m):::kafka
-
-    %% 내부 로직
-    subgraph App ["Consumer Service Application"]
-        direction TB
-        Listener(["@CommonKafkaListener Message Received"]):::process
-        Extract[Extract Key & Topic]:::process
-        
-        CheckBlock{Is Key Blocked? Local Cache Check}:::decision
-        LocalCache[(In-Memory Local Cache)]:::store
-        
-        Execute["Execute Business Logic @Service Method"]:::process
-        LogicSuccess{Success?}:::decision
-        
-        SetBlock[Set Block & TTL]:::process
-        Forward["Forward to Retry Topic (with Header+Exception)"]:::process
-        ForwardSuccess{Forwarding Success?}:::decision
-        
-        ACK((ACK Offset Commit)):::success
-        NACK((NACK Rethrow)):::fail
+    S->>R: 처리 실패 메시지 전송 (x-original-topic, x-retry-count=0)
+    R->>W: 메시지 소비
+    W->>Redis: ZSet 추가 (score=now+60s)
+    
+    Note over W: 10초마다 폴링
+    W->>Redis: 실행 시간 된 메시지 조회 & 삭제
+    
+    alt 재시도 횟수 < Max
+        W->>S: 원본 토픽으로 재발행 (x-retry-count++)
+    else 재시도 횟수 >= Max
+        W->>DB: Dead Letter 저장 (영구 보관)
     end
-
-    %% 흐름 연결
-    MainTopic --> Listener
-    Listener --> Extract
-    Extract --> CheckBlock
-    
-    %% 1. 블로킹 체크 경로
-    CheckBlock -- "YES (Blocked)" --> Forward
-    LocalCache -.-> CheckBlock
-
-    %% 2. 정상 실행 경로
-    CheckBlock -- "NO (Normal)" --> Execute
-    Execute --> LogicSuccess
-    LogicSuccess -- YES --> ACK
-    
-    %% 3. 로직 실패 및 격리 경로
-    LogicSuccess -- "NO (Exception)" --> SetBlock
-    SetBlock --> LocalCache
-    SetBlock --> Forward
-    Forward --> ForwardSuccess
-    
-    %% 4. 결과 처리 및 안전 장치
-    ForwardSuccess -- "YES (Isolated)" --> ACK
-    ForwardSuccess -- "NO (Producer Fail)" --> NACK
-
-    %% 외부 전송
-    Forward -.-> KafkaTemplate(KafkaTemplate):::process -.-> RetryTopic
-
-    %% 스타일 적용
-    linkStyle 4,5,6,7,13,14 stroke:#D90D0D,stroke-width:2px,color:red;
-    linkStyle 8,9,11,12 stroke:#0D730D,stroke-width:2px,color:green;
 ```
 
+##### Producer 기본 설정
 
-이 다이어그램은 하나의 메시지가 들어왔을 때의 처리 과정을 나타냅니다.
-1. 수신 및 확인: 메시지가 들어오면 가장 먼저 로컬 캐시(In-Memory)를 확인하여 해당 Key가 현재 차단(Blocking) 상태인지 확인합니다.
-2. 순서 보장 (Blocking): 이미 선행 메시지가 실패하여 차단된 상태라면 비즈니스 로직을 실행하지 않고 즉시 재시도 토픽으로 우회(Forwarding) 시킵니다.
-3. 로직 실행 및 실패 감지: 정상 상태라면 비즈니스 로직을 수행합니다. 수행 중 예외(Exception)가 발생하면 이를 감지합니다.
-4. 장애 격리 (Resiliency): 예외 발생 시 로컬 캐시에 해당 Key를 차단 상태로 설정하고, 메시지를 재시도 토픽으로 발송합니다.
-5. 안전 장치 (Fail-Safe): 만약 재시도 토픽으로의 발송마저 실패할 경우(가장 오른쪽 하단 분기), 원본 예외를 다시 던져(Rethrow) Kafka가 메시지 처리를 실패로 인식하게 하여 데이터 유실을 방지합니다.
+| 설정 항목 (Configuration) | 적용 값 (Value)        | 설정 이유 및 효과                                                                                       |
+| :--- |:--------------------|:-------------------------------------------------------------------------------------------------|
+| **`acks`** | **`all`**           | **데이터 유실 방지 (최우선)**<br>리더뿐만 아니라 모든 ISR(복제본)에 저장이 확인되어야 성공으로 간주합니다.                               |
+| **`retries`** | **`10`**            | 일시적인 네트워크 장애나 브로커 리밸런싱 시 즉시 실패하지 않고 충분히 재시도하여 안정성을 확보합니다.                                        |
+| **`delivery.timeout.ms`** | **`120,000`**       | 전송 실패 시 무한 대기를 방지하고, 시간 내에 전송되지 않으면 예외를 발생시켜 Fail-Fast 처리를 돕습니다.                                 |
+| **`enable.idempotence`** | **`true`**          | **중복 전송 방지 및 순서 보장**<br>네트워크 오류로 인한 메시지 중복을 막고, 파티션 내 정확한 순서를 보장합니다.                             |
+| **`max.in.flight.requests.per.connection`** | **`5`**             | **전송 속도 향상**<br>순서 보장(Idempotence)이 켜진 상태에서 최대로 보낼 수 있는 병렬 요청 수로, 대역폭을 효율적으로 사용합니다.              |
+| **`batch.size`** | **`50,000`** (50KB) | 메시지를 하나씩 보내지 않고 최대 50KB까지 모아서 한 번에 전송하여 네트워크 오버헤드를 줄입니다.                                         |
+| **`linger.ms`** | **`5`** (5ms)       | **Latency와 Throughput의 균형**<br>배치를 채우기 위해 최대 5ms를 기다립니다. 즉시 전송보다 효율적이며 지연 시간은 인간이 인지하기 힘든 수준입니다. |
+| **`compression.type`** | **`lz4`**           | CPU 부하가 적고 압축 속도가 매우 빠른 LZ4 알고리즘을 사용하여 네트워크 전송량을 줄입니다.                                           |
+
+##### Consumer 기본 설정
+
+| 설정 항목 (Configuration) | 적용 값 (Value) | 설정 이유 및 효과 |
+| :--- | :--- | :--- |
+| **`isolation.level`** | **`read_committed`** | **트랜잭션 데이터 보호**<br>트랜잭션이 완료(Commit)된 메시지만 읽습니다. 결제/정산 로직에서 롤백된 데이터를 무시하여 데이터 정합성을 지킵니다. |
+| **`auto.offset.reset`** | **`latest`** | 컨슈머 그룹이 처음 생성되었을 때, 과거 데이터가 아닌 **가장 최신 메시지부터** 소비를 시작합니다. |
+| **`enable.auto.commit`** | **`false`** | **수동 커밋 (안정성)**<br>Kafka가 주기적으로 자동 커밋하는 것을 막고, 로직 처리가 완료된 시점에 명시적으로 커밋하여 메시지 유실/중복을 제어합니다. |
+| **`AckMode`** | **`BATCH`** | **성능 최적화**<br>메시지 1건마다 커밋(RECORD)하지 않고, 폴링한 배치 단위 처리가 끝났을 때 한 번에 커밋하여 브로커 부하를 줄입니다. |
+| **`fetch.min.bytes`** | **`기본값`** (1) | 실시간성을 위해 데이터를 모으지 않고 브로커에 데이터가 있으면 즉시 가져옵니다. (Low Latency) |

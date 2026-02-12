@@ -1,43 +1,24 @@
 package com.common.kafka.resource;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+@Setter
+@Getter
 @ConfigurationProperties(prefix = "platform.kafka")
 public class PlatformKafkaProperties {
 
     /**
-     * Retry 토픽 접미사 (기본값: -retry-1m)
-     * 별도 프로젝트(Retry Worker)가 이 규칙대로 토픽을 구독해야 함
+     * 공통 Retry 토픽 이름 (기본값: common-retry-topic)
+     * 모든 실패 메시지는 원본 토픽과 관계없이 이 토픽으로 전송됨
+     * 원본 토픽 정보는 x-original-topic 헤더에 저장
      */
-    private String retryTopicSuffix = "-retry-1m";
+    private String retryTopic = "common-retry-topic";
 
     /**
-     * Redis Blocking TTL (기본값: 70초)
-     * Retry Worker가 처리하고 Block을 풀 때까지의 안전 장치 시간
+     * Redis Blocking TTL (기본값: 10초)
      */
-    private long blockingTtlSeconds = 70;
+    private long blockingTtlSeconds = 10;
 
-    public String getRetryTopicSuffix() {
-        return retryTopicSuffix;
-    }
-
-    public void setRetryTopicSuffix(String retryTopicSuffix) {
-        this.retryTopicSuffix = retryTopicSuffix;
-    }
-
-    public long getBlockingTtlSeconds() {
-        return blockingTtlSeconds;
-    }
-
-    public void setBlockingTtlSeconds(long blockingTtlSeconds) {
-        this.blockingTtlSeconds = blockingTtlSeconds;
-    }
-
-    @Override
-    public String toString() {
-        return "PlatformKafkaProperties{" +
-                "retryTopicSuffix='" + retryTopicSuffix + '\'' +
-                ", blockingTtlSeconds=" + blockingTtlSeconds +
-                '}';
-    }
 }
