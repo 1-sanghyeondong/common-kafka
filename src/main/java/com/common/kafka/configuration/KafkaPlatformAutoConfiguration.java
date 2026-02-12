@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
@@ -76,7 +77,6 @@ public class KafkaPlatformAutoConfiguration {
     public ProducerFactory<String, Object> commonProducerFactory(KafkaProperties kafkaProperties) {
         Map<String, Object> properties = new HashMap<>(getDefaultProducerProps());
         properties.putAll(kafkaProperties.buildProducerProperties(null));
-
         properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
 
         return new DefaultKafkaProducerFactory<>(properties);
@@ -102,6 +102,30 @@ public class KafkaPlatformAutoConfiguration {
             @Qualifier("commonConsumerFactory") ConsumerFactory<String, Object> consumerFactory) {
 
         ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.BATCH);
+
+        return factory;
+    }
+
+    @Bean("commonStringConsumerFactory")
+    public ConsumerFactory<String, String> commonStringConsumerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> properties = new HashMap<>(getDefaultConsumerProps());
+        properties.putAll(kafkaProperties.buildConsumerProperties(null));
+
+        properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        properties.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        properties.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, StringDeserializer.class);
+
+        return new DefaultKafkaConsumerFactory<>(properties);
+    }
+
+    @Bean("commonStringContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, String> commonStringContainerFactory(
+            @Qualifier("commonStringConsumerFactory") ConsumerFactory<String, String> consumerFactory) {
+
+        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.BATCH);
 
