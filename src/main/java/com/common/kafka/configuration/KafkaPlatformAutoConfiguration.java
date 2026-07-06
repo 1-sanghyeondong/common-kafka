@@ -8,6 +8,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.slf4j.helpers.MessageFormatter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -79,7 +80,7 @@ public class KafkaPlatformAutoConfiguration {
     public ProducerFactory<String, Object> commonProducerFactory(KafkaProperties kafkaProperties) {
         Map<String, Object> properties = new HashMap<>(getDefaultProducerProps());
         properties.putAll(kafkaProperties.buildProducerProperties(null));
-        properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, SmartJsonSerializer.class);
 
         return new DefaultKafkaProducerFactory<>(properties);
     }
